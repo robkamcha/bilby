@@ -19,13 +19,257 @@ spelled.
 Unused waveform_kwargs: {waveform_kwargs}
 """
 
+
+from scipy.interpolate import CubicSpline
+
+
+# =========================================================
+# Helper: smooth taper function
+# =========================================================
+
+def make_tapered_spline(x_nodes, y_nodes, taper_frac=0.05):
+    x = np.asarray(x_nodes, dtype=float)
+    y = np.asarray(y_nodes, dtype=float)
+    x0, xN = x[0], x[-1]
+    span = xN - x0
+    if span <= 0:
+        return lambda freqs: np.zeros_like(np.asarray(freqs, dtype=float))
+
+    eps = taper_frac * span
+    x_ext = np.concatenate(([x0 - eps], x, [xN + eps]))
+    y_ext = np.concatenate(([0.0], y, [0.0]))
+
+    cs = CubicSpline(x_ext, y_ext, bc_type=((1, 0.0), (1, 0.0)), extrapolate=True)
+
+    def taper_window(f):
+        f = np.asarray(f, dtype=float)
+        w = np.ones_like(f)
+        left = (f >= x0 - eps) & (f < x0)
+        if np.any(left):
+            u = (f[left] - (x0 - eps)) / eps
+            w[left] = 0.5 * (1 - np.cos(np.pi * u))
+        right = (f > xN) & (f <= xN + eps)
+        if np.any(right):
+            u = ((xN + eps) - f[right]) / eps
+            w[right] = 0.5 * (1 - np.cos(np.pi * u))
+        w[f < x0 - eps] = 0.0
+        w[f > xN + eps] = 0.0
+        return w
+
+    def callable_spline(freqs):
+        arr = np.asarray(freqs, dtype=float)
+        scalar = False
+        if arr.ndim == 0:
+            arr = arr[None]
+            scalar = True
+        vals = cs(arr) * taper_window(arr)
+        if scalar:
+            return float(vals[0])
+        return vals
+
+    return callable_spline
+
+
+
+class WFErrorModifierFD(object):
+    """
+    Precomputes and freezes waveform modification logic for PyCBC waveform plugin.
+
+    Parameters
+    ----------
+    config : dict
+        The dictionary of parameters passed from the PyCBC waveform generator.
+
+    Notes
+    -----
+    This class evaluates all branching (if/else logic) *once* during initialization.
+    The PE sampler then only calls the `apply()` method, which is fast.
+    """
+
+    def __init__(self, config):
+        self.cfg = config
+
+        # Validate error type once
+        err = config["error_in_phase"]
+        if err not in ("relative", "absolute"):
+            raise ValueError("error_in_phase must be 'relative' or 'absolute'")
+        self.error_in_phase = err
+
+        # Select modification type
+        modtype = config["modification_type"]
+
+        if modtype == "cubic_spline":
+            self._init_cubic_spline()
+
+        elif modtype == "constant_shift":
+            self._init_constant_shift()
+
+        elif modtype == "cubic_spline_nodes":
+            self._init_cubic_spline_nodes()
+
+        else:
+            raise TypeError(f"Unsupported modification_type '{modtype}'")
+
+    # ======================================================================
+    # Smooth Tapered Spline Constructor
+    # ======================================================================
+
+    def _make_zero_extended_tapered_spline(self, x, y, taper_fraction=0.05):
+        """
+        Build a cubic spline that:
+          - interpolates data inside [x0, xN]
+          - applies a smooth cosine taper to 0 outside
+          - is exactly zero beyond the taper region
+
+        taper_fraction : float
+            Fraction of the x-range used as taper width.
+        """
+        x0, xN = float(x[0]), float(x[-1])
+        L = xN - x0
+        eps = taper_fraction * L    # width of taper region
+
+        # Extended nodes for cubic spline stability and smoothness
+        x_ext = np.concatenate(([x0 - eps], x, [xN + eps]))
+        y_ext = np.concatenate(([0.0], y, [0.0]))
+
+        # Cubic spline with clamped derivatives at the boundaries
+        cs = CubicSpline(x_ext, y_ext, bc_type=((1, 0.0), (1, 0.0)))
+
+        # ---------- Taper window ----------
+        def taper_window(f):
+            f = np.asarray(f, dtype=float)
+            w = np.ones_like(f)
+
+            # Left taper (x0−eps → x0)
+            left = (f >= x0 - eps) & (f < x0)
+            if np.any(left):
+                u = (f[left] - (x0 - eps)) / eps
+                w[left] = 0.5 * (1 - np.cos(np.pi * u))
+
+            # Right taper (xN → xN+eps)
+            right = (f > xN) & (f <= xN + eps)
+            if np.any(right):
+                u = ((xN + eps) - f[right]) / eps
+                w[right] = 0.5 * (1 - np.cos(np.pi * u))
+
+            # Zero outside taper region
+            w[f < (x0 - eps)] = 0.0
+            w[f > (xN + eps)] = 0.0
+
+            return w
+
+        # ---------- Callable spline with taper ----------
+        def spline_callable(freqs):
+            arr = np.asarray(freqs, dtype=float)
+
+            # raw cubic spline
+            vals = cs(arr)
+
+            # apply smooth taper
+            vals *= taper_window(arr)
+
+            return vals
+
+        return spline_callable
+
+    # ---------------------------------------------------------
+    # Initialization blocks for each modification model
+    # ---------------------------------------------------------
+    def _init_cubic_spline(self):
+        cfg = self.cfg
+        self.modtype = "cubic_spline"
+
+        wf_nodal_points = cfg["nodal_points"]
+        da = cfg["delta_amplitude"]
+        dp = cfg["delta_phase"]
+
+        #self.delta_amplitude = self._make_zero_extended_tapered_spline(wf_nodal_points, da)
+        #self.delta_phase = self._make_zero_extended_tapered_spline(wf_nodal_points, dp)
+
+        self.delta_amplitude = make_tapered_spline(wf_nodal_points, da)
+        self.delta_phase = make_tapered_spline(wf_nodal_points, dp)
+
+    def _init_constant_shift(self):
+        cfg = self.cfg
+        self.modtype = "constant_shift"
+
+        self.delta_amplitude = float(cfg["delta_amplitude"])
+        self.delta_phase = float(cfg["delta_phase"])
+
+    def _init_cubic_spline_nodes(self):
+        cfg = self.cfg
+        self.modtype = "cubic_spline_nodes"
+
+        f_lo = cfg["f_lower"]
+        f_hi = cfg["f_high_wferror"]
+        n = int(cfg["n_nodes_wferror"])
+
+        # Log-spaced nodes
+        wf_nodal_points = np.logspace(np.log10(f_lo), np.log10(f_hi), n)
+
+        # Collect amplitude and phase arrays
+        da = np.array([cfg[f"wferror_amplitude_{i}"] for i in range(n)])
+        dp = np.array([cfg[f"wferror_phase_{i}"] for i in range(n)])
+
+        #self.delta_amplitude = self._make_zero_extended_tapered_spline(wf_nodal_points, da)
+        #self.delta_phase = self._make_zero_extended_tapered_spline(wf_nodal_points, dp)
+
+        self.delta_amplitude = make_tapered_spline(wf_nodal_points, da)
+        self.delta_phase = make_tapered_spline(wf_nodal_points, dp)
+
+    # ---------------------------------------------------------
+    # Core method: Apply the modification to hp, hc
+    # ---------------------------------------------------------
+    def apply(self, hp, hc):
+        """
+        Apply the frozen amplitude-phase modifications.
+
+        Parameters
+        ----------
+        hp, hc : FrequencySeries
+            Base waveform polarizations.
+
+        Returns
+        -------
+        (hp, hc) : tuple of FrequencySeries
+            Modified waveform polarizations.
+        """
+
+        if self.modtype == "constant_shift":
+            da_p = 1 + self.delta_amplitude
+            da_c = 1 + self.delta_amplitude
+
+            dphi_p = self.delta_phase
+            dphi_c = self.delta_phase
+        else:  # spline types
+            # Ensure returned arrays align with FrequencySeries length
+            freqs_p = hp.sample_frequencies
+            freqs_c = hc.sample_frequencies
+
+            # TODO: what is bilby name for sample_frequencies?
+            # -> alternatively: give frequency_array as input to apply()
+
+            da_p = self.delta_amplitude(freqs_p)
+            da_c = self.delta_amplitude(freqs_c)
+
+            dphi_p = self.delta_phase(freqs_p)
+            dphi_c = self.delta_phase(freqs_c)
+
+        if self.error_in_phase == "relative":
+            dphi_p *= np.unwrap(np.angle(hp))
+            dphi_c *= np.unwrap(np.angle(hc))
+
+        return hp * (1 + da_p) * np.exp(1j * dphi_p), hc * (1 + da_c) * np.exp(1j * dphi_c)
+
+
+
 def lal_binary_black_hole_with_amplitude_phase_modification(
         frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1,
-        phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, delta_phase, delta_amplitude, **kwargs):
-    
+        phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, **kwargs):
+
     """
     We need constant shift and cubic spline nodes
-    
+
     """
     """ A Binary Black Hole waveform model using lalsimulation
 
@@ -99,74 +343,15 @@ def lal_binary_black_hole_with_amplitude_phase_modification(
         catch_waveform_errors=False, pn_spin_order=-1, pn_tidal_order=-1,
         pn_phase_order=-1, pn_amplitude_order=0)
     waveform_kwargs.update(kwargs)
-    polas = _base_lal_cbc_fd_waveform(
+    hp, hc = _base_lal_cbc_fd_waveform(
         frequency_array=frequency_array, mass_1=mass_1, mass_2=mass_2,
         luminosity_distance=luminosity_distance, theta_jn=theta_jn, phase=phase,
         a_1=a_1, a_2=a_2, tilt_1=tilt_1, tilt_2=tilt_2, phi_12=phi_12,
         phi_jl=phi_jl, **waveform_kwargs)
-    
 
-    phase0 = {}
-    for pol in polas:
-        phase0[pol] = np.unwrap(np.angle(polas[pol]))
-    if kwargs['error_in_phase'] not in ['relative', 'absolute']:
-        raise ValueError('Only two types of errors are supported, "relative" and "absolute".')
-    
-    if kwargs['modification_type'] == 'cubic_spline':
-        wf_nodal_points = kwargs['nodal_points']
-        delta_amplitude_arr = kwargs['delta_amplitude']
-        delta_phase_arr = kwargs['delta_phase']
-        delta_amplitude_interp = CubicSpline(wf_nodal_points, delta_amplitude_arr)
-        delta_phase_interp = CubicSpline(wf_nodal_points, delta_phase_arr)
+    modifier = WFErrorModifierFD(kwargs)
 
-
-        if kwargs['error_in_phase'] == 'relative':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude_interp(frequency_array)) * np.exp(1j * phase0[pol] * delta_phase_interp(frequency_array))
-
-        elif kwargs['error_in_phase'] == 'absolute':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude_interp(frequency_array)) * np.exp(1j * delta_phase_interp(frequency_array))
-            
-
-    elif kwargs['modification_type'] == 'constant_shift':
-
-        
-        if kwargs['error_in_phase'] == 'relative':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude) * np.exp(1j * phase0[pol] * delta_phase)
-
-        elif kwargs['error_in_phase'] == 'absolute':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude) * np.exp(1j * delta_phase)
-
-    elif kwargs['modification_type'] == 'cubic_spline_nodes':
-        f_lower = kwargs['minimum_frequency']
-        f_high_wferror = kwargs['f_high_wferror']
-        n_nodes_wferror = int(kwargs['n_nodes_wferror'])
-        wf_nodal_points = np.logspace(np.log10(f_lower), np.log10(f_high_wferror), n_nodes_wferror)
-
-        delta_amplitude_arr = np.hstack([kwargs['wferror_amplitude_{}'.format(i)] for i in range(len(wf_nodal_points))])
-        delta_phase_arr = np.hstack([kwargs['wferror_phase_{}'.format(i)]for i in range(len(wf_nodal_points))])
-
-        delta_amplitude_interp = CubicSpline(wf_nodal_points, delta_amplitude_arr)
-        delta_phase_interp = CubicSpline(wf_nodal_points, delta_phase_arr)
-
-        if kwargs['error_in_phase'] == 'relative':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude_interp) * np.exp(1j * phase0[pol] * delta_phase_interp)
-
-        elif kwargs['error_in_phase'] == 'absolute':
-            for pol in polas:
-                polas[pol] *= (1+delta_amplitude_interp) * np.exp(1j * delta_phase_interp)
-
-        
-        
-
-    else:
-        raise TypeError("Currently: only two types of modification are supported")
-
-    return polas
+    return modifier.apply(hp, hc)
 
 
 
