@@ -71,9 +71,9 @@ def make_tapered_spline(x_nodes, y_nodes, taper_frac=0.05):
 
 
 
-class WFErrorModifierFD(object):
+class WFErrorModifierFD:
     """
-    Precomputes and freezes waveform modification logic for PyCBC waveform plugin.
+    Precomputes and freezes waveform modification logic for bilby waveform plugin.
 
     Parameters
     ----------
@@ -109,6 +109,8 @@ class WFErrorModifierFD(object):
 
         else:
             raise TypeError(f"Unsupported modification_type '{modtype}'")
+
+        self.frequency_array = config.get("frequency_array", None)
 
     # ======================================================================
     # Smooth Tapered Spline Constructor
@@ -200,7 +202,7 @@ class WFErrorModifierFD(object):
         cfg = self.cfg
         self.modtype = "cubic_spline_nodes"
 
-        f_lo = cfg["f_lower"]
+        f_lo = cfg["minimum_frequency"]
         f_hi = cfg["f_high_wferror"]
         n = int(cfg["n_nodes_wferror"])
 
@@ -226,25 +228,24 @@ class WFErrorModifierFD(object):
 
         Parameters
         ----------
-        hp, hc : FrequencySeries
+        hp, hc : dictionary of FrequencySeries
             Base waveform polarizations.
 
         Returns
         -------
-        (hp, hc) : tuple of FrequencySeries
+        hp, hc : dictionary of FrequencySeries
             Modified waveform polarizations.
         """
 
         if self.modtype == "constant_shift":
-            da_p = 1 + self.delta_amplitude
-            da_c = 1 + self.delta_amplitude
+            da_p = self.delta_amplitude
+            da_c = self.delta_amplitude
 
             dphi_p = self.delta_phase
             dphi_c = self.delta_phase
         else:  # spline types
             # Ensure returned arrays align with FrequencySeries length
-            freqs_p = hp.sample_frequencies
-            freqs_c = hc.sample_frequencies
+            freqs_p = freqs_c = self.frequency_array
 
             # TODO: what is bilby name for sample_frequencies?
             # -> alternatively: give frequency_array as input to apply()
@@ -259,18 +260,15 @@ class WFErrorModifierFD(object):
             dphi_p *= np.unwrap(np.angle(hp))
             dphi_c *= np.unwrap(np.angle(hc))
 
-        return hp * (1 + da_p) * np.exp(1j * dphi_p), hc * (1 + da_c) * np.exp(1j * dphi_c)
-
+        return dict(
+            plus=hp * (1 + da_p) * np.exp(1j * dphi_p),
+            cross=hc * (1 + da_c) * np.exp(1j * dphi_c)
+        )
 
 
 def lal_binary_black_hole_with_amplitude_phase_modification(
         frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1,
         phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, **kwargs):
-
-    """
-    We need constant shift and cubic spline nodes
-
-    """
     """ A Binary Black Hole waveform model using lalsimulation
 
     Parameters
@@ -343,18 +341,21 @@ def lal_binary_black_hole_with_amplitude_phase_modification(
         catch_waveform_errors=False, pn_spin_order=-1, pn_tidal_order=-1,
         pn_phase_order=-1, pn_amplitude_order=0)
     waveform_kwargs.update(kwargs)
-    hp, hc = _base_lal_cbc_fd_waveform(
+
+    h = _base_lal_cbc_fd_waveform(
         frequency_array=frequency_array, mass_1=mass_1, mass_2=mass_2,
         luminosity_distance=luminosity_distance, theta_jn=theta_jn, phase=phase,
         a_1=a_1, a_2=a_2, tilt_1=tilt_1, tilt_2=tilt_2, phi_12=phi_12,
         phi_jl=phi_jl, **waveform_kwargs)
 
+    if h is None:
+        # Error during WF generation, but catch_waveform_errors=False
+        return None
+
     modifier = WFErrorModifierFD(kwargs)
 
-    return modifier.apply(hp, hc)
-
-
-
+    # return modifier.apply(*h)
+    return modifier.apply(h["plus"], h["cross"])
 
 
 def gwsignal_binary_black_hole(frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1,
