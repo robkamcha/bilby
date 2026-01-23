@@ -783,14 +783,14 @@ class TestAmpPhaseModLalBBH(unittest.TestCase):
             dict(delta_amplitude=0.0, delta_phase=0.0)
         )
         print(self.parameters)
-        hpc_gwsignal = bilby.gw.source.lal_binary_black_hole_with_amplitude_phase_modification(
+        hpc_lal_mod = bilby.gw.source.lal_binary_black_hole_with_amplitude_phase_modification(
             self.frequency_array, **self.parameters
         )
         hpc_lal = bilby.gw.source.lal_binary_black_hole(
             self.frequency_array, **self.parameters
         )
-        np.testing.assert_allclose(hpc_gwsignal["plus"], hpc_lal["plus"], atol=0, rtol=1e-7)
-        np.testing.assert_allclose(hpc_gwsignal["cross"], hpc_lal["cross"], atol=0, rtol=1e-7)
+        np.testing.assert_allclose(hpc_lal_mod["plus"], hpc_lal["plus"], atol=0, rtol=1e-7)
+        np.testing.assert_allclose(hpc_lal_mod["cross"], hpc_lal["cross"], atol=0, rtol=1e-7)
 
     def test_different_mod_consistency(self):
         self.parameters.update(self.waveform_kwargs)
@@ -801,7 +801,7 @@ class TestAmpPhaseModLalBBH(unittest.TestCase):
             dict(
                 modification_type="cubic_spline_nodes",
                 n_nodes_wferror=2,
-                f_high_wferror=512.0,
+                maximum_frequency_wferror=512.0,
                 wferror_amplitude_0=0.1,
                 wferror_phase_0=0.5,
                 wferror_amplitude_1=0.1,
@@ -816,6 +816,113 @@ class TestAmpPhaseModLalBBH(unittest.TestCase):
         ]:
             self.parameters.update(mod_params)
             bilby.gw.source.lal_binary_black_hole_with_amplitude_phase_modification(
+                self.frequency_array, **self.parameters
+            )
+
+
+class TestAmpPhaseModLalGWSignal(unittest.TestCase):
+    def setUp(self):
+        self.parameters = dict(
+            mass_1=30.0,
+            mass_2=30.0,
+            luminosity_distance=400.0,
+            a_1=0.4,
+            tilt_1=0.2,
+            phi_12=1.0,
+            a_2=0.8,
+            tilt_2=2.7,
+            phi_jl=2.9,
+            theta_jn=0.3,
+            phase=0.0,
+        )
+        self.waveform_kwargs = dict(
+            waveform_approximant="IMRPhenomXPHM",
+            reference_frequency=50.0,
+            minimum_frequency=20.0,
+            catch_waveform_errors=True,
+            modification_type="constant_shift",
+            error_in_phase="relative",
+            delta_amplitude=0.1,
+            delta_phase=0.5,
+        )
+        self.frequency_array = bilby.core.utils.create_frequency_series(2048, 4)
+        self.bad_parameters = copy(self.parameters)
+        self.bad_parameters["mass_1"] = -30.0
+
+    def tearDown(self):
+        del self.parameters
+        del self.waveform_kwargs
+        del self.frequency_array
+        del self.bad_parameters
+
+    def test_amp_phase_bbh_gwsignal_works_runs_valid_parameters(self):
+        self.parameters.update(self.waveform_kwargs)
+        self.assertIsInstance(
+            bilby.gw.source.gwsignal_black_hole_with_amplitude_phase_modification(
+                self.frequency_array, **self.parameters
+            ),
+            dict,
+        )
+
+    def test_waveform_error_catching(self):
+        self.bad_parameters.update(self.waveform_kwargs)
+        self.assertIsNone(
+            bilby.gw.source.gwsignal_black_hole_with_amplitude_phase_modification(
+                self.frequency_array, **self.bad_parameters
+            )
+        )
+
+    def test_waveform_error_raising(self):
+        raise_error_parameters = copy(self.bad_parameters)
+        raise_error_parameters.update(self.waveform_kwargs)
+        raise_error_parameters["catch_waveform_errors"] = False
+        with self.assertRaises(Exception):
+            bilby.gw.source.gwsignal_black_hole_with_amplitude_phase_modification(
+                self.frequency_array, **raise_error_parameters
+            )
+
+    def test_no_mod_consistency(self):
+        self.parameters.update(self.waveform_kwargs)
+        self.parameters.update(
+            dict(delta_amplitude=0.0, delta_phase=0.0)
+        )
+        hpc_gwsignal_mod = bilby.gw.source.gwsignal_black_hole_with_amplitude_phase_modification(
+            self.frequency_array, **self.parameters
+        )
+        self.parameters.pop("modification_type")
+        self.parameters.pop("error_in_phase")
+        self.parameters.pop("delta_amplitude")
+        self.parameters.pop("delta_phase")
+        hpc_gwsignal = bilby.gw.source.gwsignal_binary_black_hole(
+            self.frequency_array, **self.parameters
+        )
+        np.testing.assert_allclose(hpc_gwsignal_mod["plus"], hpc_gwsignal["plus"], atol=0, rtol=1e-7)
+        np.testing.assert_allclose(hpc_gwsignal_mod["cross"], hpc_gwsignal["cross"], atol=0, rtol=1e-7)
+
+    def test_different_mod_consistency(self):
+        self.parameters.update(self.waveform_kwargs)
+
+        for mod_params in [
+            dict(modification_type="constant_shift", error_in_phase="relative", delta_amplitude=0.1, delta_phase=0.0),
+            dict(modification_type="constant_shift", error_in_phase="absolute", delta_amplitude=0.1, delta_phase=0.0),
+            dict(
+                modification_type="cubic_spline_nodes",
+                n_nodes_wferror=2,
+                maximum_frequency_wferror=512.0,
+                wferror_amplitude_0=0.1,
+                wferror_phase_0=0.5,
+                wferror_amplitude_1=0.1,
+                wferror_phase_1=0.5,
+            ),
+            dict(
+                modification_type="cubic_spline",
+                nodal_points=np.array([20.0, 100.0, 512.0]),
+                delta_amplitude=np.array([0.1, -0.1, 0.0]),
+                delta_phase=np.array([0.5, -0.5, 0.0]),
+            ),
+        ]:
+            self.parameters.update(mod_params)
+            bilby.gw.source.gwsignal_black_hole_with_amplitude_phase_modification(
                 self.frequency_array, **self.parameters
             )
 
