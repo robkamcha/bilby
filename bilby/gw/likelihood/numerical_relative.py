@@ -125,22 +125,22 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         )
         self.perturbed_parameters = perturbed_parameters
 
-    def setup_summary_data(self, N_interferometers, N_bins):
+    def setup_summary_data(self, N_interferometers, size):
         """
         Function to create array of zeros.
         The summary data will be stored in these arrays.
         """
         A_0 = np.zeros(
-            (N_interferometers, N_bins), dtype=complex
+            (N_interferometers, size), dtype=complex
         )
         A_1 = np.zeros(
-            (N_interferometers, N_bins), dtype=complex
+            (N_interferometers, size), dtype=complex
         )
         B_0 = np.zeros(
-            (N_interferometers, N_bins), dtype=complex
+            (N_interferometers, size), dtype=complex
         )
         B_1 = np.zeros(
-            (N_interferometers, N_bins), dtype=complex
+            (N_interferometers, size), dtype=complex
         )
 
         return A_0, A_1, B_0, B_1
