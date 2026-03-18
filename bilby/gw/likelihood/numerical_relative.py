@@ -46,9 +46,6 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         self.fiducial_parameters = fiducial_parameters
         self.generate_perturbed_parameters()
 
-    def setup_bins_iteration(self):
-        pass
-
     def setup_bins(self, N_target_bins):
 
         """
@@ -92,6 +89,9 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
             # FIXME
             accepted_grid = np.insert(proposed_bins, 0, self.band_indices[0])
             accepted_grid = sorted(np.unique(accepted_grid))
+
+    def setup_bins_iteration(self):
+        pass
 
     def generate_perturbed_parameters(self):
         perturbed_parameters = self.fiducial_parameters.copy()
