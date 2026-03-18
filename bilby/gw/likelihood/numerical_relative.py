@@ -46,15 +46,52 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         self.fiducial_parameters = fiducial_parameters
         self.generate_perturbed_parameters()
 
-    def setup_bins():
+    def setup_bins_iteration(self):
+        pass
+
+    def setup_bins(self, N_target_bins):
+
         """
         Constructs a sparse frequency grid
         starting from the uniform frequency grid.
         The uniform frequency will be bisected until
         the error crosses the threshold value.
         """
+        # FIXME
+        catch_errors = None
+        proposed_bins = self.setup_bins_iteration()
 
-        pass
+        if len(proposed_bins) != N_target_bins:
+            logger.info(
+                f"Rerunning the binning algorithm with {len(proposed_bins)} proposed bins"
+                f"and {len(N_target_bins)} target bins"
+            )
+
+            self.setup_bins(len(proposed_bins))
+
+        elif len(proposed_bins) < self.minimum_bins:
+            self.generate_perturbed_parameters()
+            logger.info(
+                f"The previous set of pertrubed parameters resulted in "
+                f"too few bins. Updated perturbed chirp mass to "
+                f"{self.perturbed_parameters['chirp_mass']}"
+                f"and mass ratio to {self.perturbed_parameters['mass_ratio']}."
+            )
+            # FIXME: Update pertrubed_strains
+            self.setup_bins(self.minimum_bins)
+
+        else:
+            sum_errors = np.sum(np.array(catch_errors))
+            logger.info(f"Observed errors: {sum_errors}")
+            logger.info(f"Expected errors: {self.delta}")
+            logger.info(
+                f"Terminating the bisection algorithm. "
+                f"The number of bins made: {len(proposed_bins)}"
+            )
+
+            # FIXME
+            accepted_grid = np.insert(proposed_bins, 0, self.band_indices[0])
+            accepted_grid = sorted(np.unique(accepted_grid))
 
     def generate_perturbed_parameters(self):
         perturbed_parameters = self.fiducial_parameters.copy()
@@ -91,10 +128,14 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         index = np.argmin(np.abs(frequency_array - frequency_value))
         return index
 
-    def compute_likelihood_error():
+    def compute_likelihood_error(self, minimum_frequency, maximum_frequency, relative=False):
         """
         Function to compute the errors between
         the exact likelihood and the
         relative binning (or approximate) likelihood
+
+        minimum_frequency: Lower bound used for likelihood integration
+        maximum_frequency: Upper bound used for likelihood integration
         """
-        pass
+        likelihood_error = False
+        return likelihood_error
