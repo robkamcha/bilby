@@ -11,6 +11,9 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
     - This class implements a numerical relative binning scheme in contrast to the analytic one (in relative.py).
     - This class is specifically developed to perform
     parameter estimation on long duration signal including earth rotation.
+
+    fiducial_parameters: Set of parameters used to construct the sparse grid
+    minimum_bins: The bin construction method will keep running until this number is reached
     """
 
     def __init__(
@@ -38,6 +41,7 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
             earth_rotation=earth_rotation,
         )
 
+        self.minimum_bins = minimum_bins
         # Assign fiducial parameters and use it to generate pertrubed parameters
         self.fiducial_parameters = fiducial_parameters
         self.generate_perturbed_parameters()
@@ -49,8 +53,8 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         perturbed_parameters = self.fiducial_parameters.copy()
 
         # FIXME: In future, we may want to use a fisher matrix to estimate these numbers
-        chirp_mass_perturbation_percentage = 1e-3
-        mass_ratio_perturbation_percentage = 1e-3
+        chirp_mass_perturbation_percentage = 1
+        mass_ratio_perturbation_percentage = 1
 
         chirp_mass_perturbation = 1 + (1e-2 * chirp_mass_perturbation_percentage * np.random.uniform(-1, 1, 1)[0])
         mass_ratio_perturbation = 1 + (1e-2 * mass_ratio_perturbation_percentage * np.random.uniform(-1, 1, 1)[0])
