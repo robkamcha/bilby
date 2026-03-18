@@ -4,6 +4,13 @@ from ...core.utils import logger
 # from scipy.optimize import differential_evolution
 # from ..utils import noise_weighted_inner_product
 
+"""
+Remaining things to do
+1. Method to generate waveform on a desired frequency grid
+2. Summary data computation between a certain fmin and fmax
+3. Method to compute the exact likelihood
+"""
+
 
 class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransient):
     """
@@ -75,6 +82,11 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
                 f"and mass ratio to {self.perturbed_parameters['mass_ratio']}."
             )
             # FIXME: Update pertrubed_strains
+            self.perturbed_strains = self._compute_full_waveform(
+                signal_polarizations=None,
+                interferometer=None,
+                parameters=self.perturbed_parameters
+            )
             self.setup_bins(self.minimum_bins)
 
         else:
