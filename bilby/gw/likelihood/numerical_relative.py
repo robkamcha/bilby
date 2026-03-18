@@ -38,11 +38,17 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
             earth_rotation=earth_rotation,
         )
 
+        # Assign fiducial parameters and use it to generate pertrubed parameters
+        self.fiducial_parameters = fiducial_parameters
+        self.generate_perturbed_parameters()
+
     def setup_bins():
         pass
 
     def generate_perturbed_parameters(self):
         perturbed_parameters = self.fiducial_parameters.copy()
+
+        # FIXME: In future, we may want to use a fisher matrix to estimate these numbers
         chirp_mass_perturbation_percentage = 1e-3
         mass_ratio_perturbation_percentage = 1e-3
 
