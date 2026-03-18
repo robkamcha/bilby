@@ -47,6 +47,13 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         self.generate_perturbed_parameters()
 
     def setup_bins():
+        """
+        Constructs a sparse frequency grid
+        starting from the uniform frequency grid.
+        The uniform frequency will be bisected until
+        the error crosses the threshold value.
+        """
+
         pass
 
     def generate_perturbed_parameters(self):
@@ -75,3 +82,19 @@ class NumericalRelativeBinningGravitationalWaveTransient(GravitationalWaveTransi
         """
         summary_data = dict
         self.summary_data = summary_data
+
+    def find_nearest_index(self, frequency_value, frequency_array):
+        """
+        Method to find the index in the `frequency_array` that is
+        nearest to the `frequency_value`
+        """
+        index = np.argmin(np.abs(frequency_array - frequency_value))
+        return index
+
+    def compute_likelihood_error():
+        """
+        Function to compute the errors between
+        the exact likelihood and the
+        relative binning (or approximate) likelihood
+        """
+        pass
