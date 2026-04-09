@@ -1,0 +1,12 @@
+# The proposed triangle Einstein Telescope located at the EMR site.
+name = 'ET_D_EMR'
+power_spectral_density = PowerSpectralDensity(psd_file='ET_D_psd.txt')
+length = 10
+minimum_frequency = 5
+maximum_frequency = 4096
+latitude = 50 + 43. / 60 + 50.30 / 3600
+longitude = 5 + 54. / 60 + 02.50 / 3600
+elevation = 0.0
+xarm_azimuth = -19.4326
+yarm_azimuth = 40.5674
+shape = 'Triangle'
