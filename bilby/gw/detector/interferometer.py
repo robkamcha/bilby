@@ -1144,6 +1144,46 @@ class Interferometer(object):
                 '{}/{}_{}_time_domain_data.png'.format(outdir, self.name, label))
         plt.close(fig)
 
+
+    def write_out_ifo_file(self, outdir=os.path.join(os.path.dirname(__file__), "detectors")):
+        """ Writes out the interferometer data to a file
+
+        Parameters
+        ==========
+        outdir: str, optional
+            Output directory name of the file, defaults to the package
+            detector directory: ``bilby/gw/detector/detectors``.
+
+        """
+        utils.check_directory_exists_and_if_not_mkdir(outdir)
+        filename = self._filename_from_outdir_label_extension(
+                                                                outdir,
+                                                                label=self.name,
+                                                                extension="interferometer"
+                                                            )
+        with open(filename, "w") as ff:
+            ff.write(
+                'name = \'{}\'\n'
+                'power_spectral_density = {}\n'
+                'minimum_frequency = {}\n'
+                'maximum_frequency = {}\n'
+                'length = {}\n'
+                'latitude = {}\n'
+                'longitude = {}\n'
+                'elevation = {}\n'
+                'xarm_azimuth = {}\n'
+                'yarm_azimuth = {}\n'
+                'xarm_tilt = {}\n'
+                'yarm_tilt = {}'
+            .format(self.name, self.power_spectral_density, float(self.strain_data.minimum_frequency),
+                    float(self.strain_data.maximum_frequency), float(self.geometry.length),
+                    float(self.geometry.latitude), float(self.geometry.longitude),
+                    float(self.geometry.elevation), float(self.geometry.xarm_azimuth),
+                    float(self.geometry.yarm_azimuth), float(self.geometry.xarm_tilt),
+                    float(self.geometry.yarm_tilt))
+            )
+
+
     @staticmethod
     def _filename_from_outdir_label_extension(outdir, label, extension="h5"):
         return os.path.join(outdir, label + f'.{extension}')

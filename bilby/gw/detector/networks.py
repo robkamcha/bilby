@@ -252,6 +252,12 @@ class InterferometerList(list):
                 t0=t0
             )
 
+
+    def write_out_ifo_files(self, outdir=os.path.join(os.path.dirname(__file__), "detectors")):
+        for interferometer in self:
+            interferometer.write_out_ifo_file(outdir=outdir)
+
+
     @property
     def number_of_interferometers(self):
         return len(self)
