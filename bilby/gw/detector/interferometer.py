@@ -1161,6 +1161,7 @@ class Interferometer(object):
                                                                 label=self.name,
                                                                 extension="interferometer"
                                                             )
+        logger.info(f"Writing out {self.name} .interferometer file to {filename}")
         with open(filename, "w") as ff:
             ff.write(
                 'name = \'{}\'\n'
