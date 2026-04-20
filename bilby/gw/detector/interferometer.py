@@ -1162,6 +1162,10 @@ class Interferometer(object):
                                                                 extension="interferometer"
                                                             )
         logger.info(f"Writing out {self.name} .interferometer file to {filename}")
+        if "ET" in self.name:
+            psd = "PowerSpectralDensity(psd_file='ET_D_psd.txt')"
+        else:
+            psd = self.power_spectral_density
         with open(filename, "w") as ff:
             ff.write(
                 'name = \'{}\'\n'
@@ -1176,7 +1180,7 @@ class Interferometer(object):
                 'yarm_azimuth = {}\n'
                 'xarm_tilt = {}\n'
                 'yarm_tilt = {}'
-            .format(self.name, self.power_spectral_density, float(self.strain_data.minimum_frequency),
+            .format(self.name, psd, float(self.strain_data.minimum_frequency),
                     float(self.strain_data.maximum_frequency), float(self.geometry.length),
                     float(self.geometry.latitude), float(self.geometry.longitude),
                     float(self.geometry.elevation), float(self.geometry.xarm_azimuth),
