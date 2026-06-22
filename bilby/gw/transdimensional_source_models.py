@@ -112,7 +112,7 @@ def tb_sine_gaussian(frequency_array, amplitude, f0, Q, phi0, dt, e): # Taken fr
     return {"plus": plus, "cross": cross}
 
 
-def make_signal_model(n_max, ifo_list):
+def make_astrophysical_signal_model(n_max, ifo_list):
     """
     Factory that returns a signal_model function supporting up to n_max sine-gaussian components.
 
@@ -186,23 +186,77 @@ def make_signal_model(n_max, ifo_list):
     return signal_model
 
 
-def binary_black_hole_with_sinegaussians(frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1,
-        phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, **kwargs):
+def _glitch_SNR_to_amplitude(SNR, Q, f0, ifo):
     """
-    TODO
+    Convert a target optimal SNR to a sine-Gaussian amplitude for a glitch in a
+    single interferometer, without any antenna-response weighting.
+
+    Derived by setting SNR^2 = A^2 * Q / (2*sqrt(2*pi)*f0*S_n(f0)), which is the
+    analytical optimal SNR of the sine-Gaussian template when it appears directly
+    in the detector strain (F+ = 1, Fx = 0, no sky projection).
     """
+    psd = ifo.power_spectral_density.power_spectral_density_interpolated(f0)
+    return SNR / np.sqrt(Q / (2 * np.sqrt(2 * np.pi) * f0 * psd))
 
-    sinegaussian_model = kwargs['signal_model']
-    strain_sg = sinegaussian_model(frequency_array, **kwargs)
 
-    strain_bbh = lal_binary_black_hole(
-        frequency_array, mass_1, mass_2, luminosity_distance, a_1, tilt_1, phi_12, a_2, tilt_2, phi_jl, theta_jn, phase, **kwargs
-    )
+def make_glitch_signal_model(n_max, ifo):
+    """
+    Factory that returns a signal_model for glitches in a single interferometer,
+    supporting up to n_max sine-gaussian components.
 
-    return {
-        "plus": strain_bbh["plus"] + strain_sg["plus"],
-        "cross": strain_bbh["cross"] + strain_sg["cross"],
-    }
+    No antenna response is applied: the amplitude is determined solely from the
+    target SNR and the interferometer's PSD.  Create one model per detector for
+    joint multi-IFO inference with independent per-IFO glitches.
+
+    Parameters
+    ----------
+    n_max : int
+        Maximum number of sine-gaussian components.
+    ifo : bilby.gw.detector.Interferometer
+        The interferometer whose PSD is used for the SNR-to-amplitude conversion.
+
+    Returns
+    -------
+    callable
+        A Bilby-compatible source model returning {"plus": glitch_strain, "cross": zeros}.
+    """
+    def signal_model(frequency_array, **kwargs):
+        n = int(kwargs['n'])
+        SNR = [kwargs[f'SNR{i}'] for i in range(n_max)]
+        f   = [kwargs[f'f{i}']   for i in range(n_max)]
+        Q   = [kwargs[f'Q{i}']   for i in range(n_max)]
+        phi = [kwargs[f'phi{i}'] for i in range(n_max)]
+        dt  = [kwargs[f'dt{i}']  for i in range(n_max)]
+
+        model = {
+            "plus":  np.zeros(frequency_array.shape, dtype='complex128'),
+            "cross": np.zeros(frequency_array.shape, dtype='complex128'),
+        }
+        for i in range(n):
+            A = _glitch_SNR_to_amplitude(SNR[i], Q[i], f[i], ifo)
+            sig = tb_sine_gaussian(frequency_array, A, f[i], Q[i], phi[i], dt[i], e=0)
+            model["plus"] += sig["plus"]
+        return model
+
+    P = inspect.Parameter
+    params = [
+        P('frequency_array', P.POSITIONAL_OR_KEYWORD),
+        P('n',               P.POSITIONAL_OR_KEYWORD),
+    ]
+    for i in range(n_max):
+        params.append(P(f'SNR{i}', P.POSITIONAL_OR_KEYWORD))
+    for i in range(n_max):
+        params.append(P(f'f{i}', P.POSITIONAL_OR_KEYWORD))
+    for i in range(n_max):
+        params.append(P(f'Q{i}', P.POSITIONAL_OR_KEYWORD))
+    for i in range(n_max):
+        params.append(P(f'phi{i}', P.POSITIONAL_OR_KEYWORD))
+    for i in range(n_max):
+        params.append(P(f'dt{i}', P.POSITIONAL_OR_KEYWORD))
+    params.append(P('kwargs', P.VAR_KEYWORD))
+    signal_model.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
+    signal_model.__name__ = f'glitch_model_{n_max}components'
+    return signal_model
     
 
 ######################################################################################################################################

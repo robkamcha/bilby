@@ -1,4 +1,5 @@
 from .base import GravitationalWaveTransient
+from .glitch import GlitchGravitationalWaveTransient
 from .basic import BasicGravitationalWaveTransient
 from .roq import BilbyROQParamsRangeError, ROQGravitationalWaveTransient
 from .multiband import MBGravitationalWaveTransient
