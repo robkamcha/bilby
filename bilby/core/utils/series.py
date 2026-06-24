@@ -206,7 +206,7 @@ def nfft(time_domain_strain, sampling_frequency):
         strain / Hz, and the associated frequency_array.
 
     """
-    frequency_domain_strain = np.fft.rfft(time_domain_strain)
+    frequency_domain_strain = np.fft.rfft(np.asarray(time_domain_strain, dtype=float))
     frequency_domain_strain /= sampling_frequency
 
     frequency_array = np.linspace(
