@@ -4,7 +4,10 @@ This file contains source models that can be used for transdimensional inference
 
 import inspect
 import numpy as np
-from .source import lal_binary_black_hole, lal_binary_neutron_star
+from .source import (
+    lal_binary_black_hole, lal_binary_neutron_star,
+    lal_binary_neutron_star_relative_binning,
+)
 
 from .detector.networks import InterferometerList
 
@@ -257,7 +260,8 @@ def make_glitch_signal_model(n_max, ifo):
     signal_model.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
     signal_model.__name__ = f'glitch_model_{n_max}components'
     return signal_model
-    
+
+
 
 ######################################################################################################################################
 ##################################################### Resonant phase shift model #####################################################
@@ -287,31 +291,53 @@ def bns_with_resonances_factory(n_max):
     resonance_model = multi_resonance_model_factory(n_max)
 
     def bns_with_resonances(frequency_array, **kwargs):
-        m1        = kwargs['mass_1']
-        m2        = kwargs['mass_2']
-        a1        = kwargs['a_1']
-        a2        = kwargs['a_2']
-        tilt_1     = kwargs['tilt_1']
-        tilt_2     = kwargs['tilt_2']
-        phi_12    = kwargs['phi_12']
-        phi_jl    = kwargs['phi_jl']
-        lambda1   = kwargs['lambda_1']
-        lambda2   = kwargs['lambda_2']
-        distance  = kwargs['luminosity_distance']
-        inclination = kwargs['theta_jn']
-        psi       = kwargs['phase']
+        m1        = kwargs.pop('mass_1')
+        m2        = kwargs.pop('mass_2')
+        a1        = kwargs.pop('a_1')
+        a2        = kwargs.pop('a_2')
+        tilt_1     = kwargs.pop('tilt_1')
+        tilt_2     = kwargs.pop('tilt_2')
+        phi_12    = kwargs.pop('phi_12')
+        phi_jl    = kwargs.pop('phi_jl')
+        lambda1   = kwargs.pop('lambda_1')
+        lambda2   = kwargs.pop('lambda_2')
+        distance  = kwargs.pop('luminosity_distance')
+        inclination = kwargs.pop('theta_jn')
+        psi       = kwargs.pop('phase')
 
-        resonance_kwargs = {'n': kwargs['n']}
+        resonance_kwargs = {'n': kwargs.pop('n')}
         for i in range(n_max):
-            resonance_kwargs[f'f0{i}']   = kwargs[f'f0{i}']
-            resonance_kwargs[f'dphi{i}'] = kwargs[f'dphi{i}']
+            resonance_kwargs[f'f0{i}']   = kwargs.pop(f'f0{i}')
+            resonance_kwargs[f'dphi{i}'] = kwargs.pop(f'dphi{i}')
 
-        resonance_phase = resonance_model(frequency_array, **resonance_kwargs)
-        bns_signal = lal_binary_neutron_star(
-            frequency_array, m1, m2, distance,
-            a1, tilt_1, phi_12, a2, tilt_2, phi_jl,
-            inclination, psi, lambda1, lambda2,
-        )
+        # `kwargs` now only holds waveform_arguments (waveform_approximant,
+        # minimum_frequency, maximum_frequency, reference_frequency, and,
+        # when used with RelativeBinningGravitationalWaveTransient,
+        # `fiducial`/`frequency_bin_edges`). Honor those the same way
+        # `lal_binary_neutron_star_relative_binning` does, so the resonance
+        # phase is evaluated on the same frequency points as the BNS signal.
+        fiducial = kwargs.pop('fiducial', 1)
+        frequency_bin_edges = kwargs.pop('frequency_bin_edges', None)
+
+        if fiducial:
+            resonance_frequency_array = frequency_array
+            bns_signal = lal_binary_neutron_star(
+                frequency_array, m1, m2, distance,
+                a1, tilt_1, phi_12, a2, tilt_2, phi_jl,
+                inclination, psi, lambda1, lambda2,
+                **kwargs,
+            )
+        else:
+            resonance_frequency_array = frequency_bin_edges
+            bns_signal = lal_binary_neutron_star_relative_binning(
+                frequency_array, m1, m2, distance,
+                a1, tilt_1, phi_12, a2, tilt_2, phi_jl,
+                lambda1, lambda2, inclination, psi,
+                fiducial=0, frequency_bin_edges=frequency_bin_edges,
+                **kwargs,
+            )
+
+        resonance_phase = resonance_model(resonance_frequency_array, **resonance_kwargs)
 
         phase_factor_plus  = np.exp(1j * resonance_phase) * (0.5 * (1 + np.cos(inclination) ** 2))
         phase_factor_cross = np.exp(1j * resonance_phase) * np.cos(inclination)
