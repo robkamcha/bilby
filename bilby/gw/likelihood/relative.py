@@ -117,7 +117,8 @@ class RelativeBinningGravitationalWaveTransient(GravitationalWaveTransient):
                  reference_frame="sky",
                  time_reference="geocenter",
                  chi=1,
-                 epsilon=0.5):
+                 epsilon=0.5,
+                 earth_rotation=False):
 
         super(RelativeBinningGravitationalWaveTransient, self).__init__(
             interferometers=interferometers,
@@ -129,7 +130,8 @@ class RelativeBinningGravitationalWaveTransient(GravitationalWaveTransient):
             distance_marginalization_lookup_table=distance_marginalization_lookup_table,
             jitter_time=jitter_time,
             reference_frame=reference_frame,
-            time_reference=time_reference)
+            time_reference=time_reference,
+            earth_rotation=earth_rotation,)
 
         if fiducial_parameters is None:
             logger.info("Drawing fiducial parameters from prior.")
@@ -258,7 +260,7 @@ class RelativeBinningGravitationalWaveTransient(GravitationalWaveTransient):
 
         for interferometer in self.interferometers:
             logger.debug(f"Maximum Frequency is {interferometer.maximum_frequency}")
-            wf = interferometer.get_detector_response(self.fiducial_polarizations, parameters)
+            wf = interferometer.get_detector_response(self.fiducial_polarizations, parameters, earth_rotation=self.earth_rotation)
             wf[interferometer.frequency_array > self.maximum_frequency] = 0
             self.per_detector_fiducial_waveforms[interferometer.name] = wf
 
@@ -369,6 +371,7 @@ class RelativeBinningGravitationalWaveTransient(GravitationalWaveTransient):
             waveform_polarizations=waveform_polarizations,
             parameters=parameters,
             frequencies=self.bin_freqs,
+            earth_rotation=self.earth_rotation,
         )
         reference_strain = self.per_detector_fiducial_waveform_points[name]
         waveform_ratio = strain / reference_strain

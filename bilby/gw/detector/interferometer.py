@@ -477,6 +477,89 @@ class Interferometer(object):
 
         return signal_ifo
 
+    def get_detector_response_for_polarisation_mode(self, waveform_polarizations, parameters, mode, frequencies=None, earth_rotation=False):
+        """ Essentially a copy of the function above, but returns a tuple (Fplus, Fcross). Intended for use in the relativebilbying package
+
+        Parameters
+        ==========
+        waveform_polarizations: dict
+            polarizations of the waveform
+        parameters: dict
+            parameters describing position and time of arrival of the signal
+        frequencies: array-like, optional
+        The frequency values to evaluate the response at. If
+        not provided, the response is computed using
+        :code:`self.frequency_array`. If the frequencies are
+        specified, no frequency masking is performed.
+
+        Returns
+        =======
+        array_like: A 3x3 array representation of the detector response (signal observed in the interferometer)
+
+        Notes
+        =====
+        If the :code:`reference_time` attribute is not :code:`None`, this is
+        used to set the time at which the antenna response is evaluated,
+        otherwise the provided :code:`Parameters["geocent_time"]` is used.
+        """
+
+        if frequencies is None:
+            frequencies = self.frequency_array[self.frequency_mask]
+            mask = self.frequency_mask
+        else:
+            mask = np.ones(len(frequencies), dtype=bool)
+
+        if self.reference_time is None:
+            antenna_time = parameters["geocent_time"]
+            if earth_rotation:
+                # FIXME: earth rotation only works with self.reference_time==geocent_time
+                antenna_time = self.compute_premerger_time(
+                    parameters, frequencies=frequencies)
+        else:
+            antenna_time = self.reference_time
+
+        if np.ndim(antenna_time) > 0:
+            det_response = self.interpolate_antenna_response(
+                parameters['ra'], parameters['dec'],
+                antenna_time, parameters['psi'], mode)
+
+            # Pad det_response to match the length of self.frequency_array,
+            # which equals the length of each waveform polarization.
+            det_response_padded = np.zeros(len(self.frequency_array))
+            det_response_padded[mask] = det_response
+            det_response = det_response_padded
+        else:
+            det_response = self.antenna_response(
+                parameters['ra'],
+                parameters['dec'],
+                antenna_time,
+                parameters['psi'], mode)
+
+        signal = waveform_polarizations[mode] * det_response * mask
+
+        if np.ndim(antenna_time) > 0:
+            time_shift = np.array([
+                self.time_delay_from_geocenter(
+                    parameters['ra'], parameters['dec'], t)
+                for t in antenna_time])
+        else:
+            time_shift = self.time_delay_from_geocenter(
+                parameters['ra'], parameters['dec'], parameters['geocent_time'])
+
+        # Be careful to first subtract the two GPS times which are ~1e9 sec.
+        # And then add the time_shift which varies at ~1e-5 sec
+        dt_geocent = parameters['geocent_time'] - self.strain_data.start_time
+        dt = dt_geocent + time_shift
+
+        signal[mask] = signal[mask] * \
+            np.exp(-1j * 2 * np.pi * dt * frequencies)
+
+        signal[mask] *= self.calibration_model.get_calibration_factor(
+            frequencies, prefix='recalib_{}_'.format(self.name), **parameters
+        )
+
+        return signal, dt
+
     def check_signal_duration(self, parameters, raise_error=True):
         """ Check that the signal with the given parameters fits in the data
 
