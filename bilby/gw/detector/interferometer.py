@@ -416,7 +416,8 @@ class Interferometer(object):
         otherwise the provided :code:`Parameters["geocent_time"]` is used.
         """
 
-        if frequencies is None:
+        full_grid = frequencies is None
+        if full_grid:
             frequencies = self.frequency_array[self.frequency_mask]
             mask = self.frequency_mask
         else:
@@ -438,11 +439,14 @@ class Interferometer(object):
                     parameters['ra'], parameters['dec'],
                     antenna_time, parameters['psi'], mode)
 
-                # Pad det_response to match the length of self.frequency_array,
-                # which equals the length of each waveform polarization.
-                det_response_padded = np.zeros(len(self.frequency_array))
-                det_response_padded[mask] = det_response
-                det_response = det_response_padded
+                # When evaluating on the full grid, pad det_response to match
+                # the length of self.frequency_array, which equals the length
+                # of each waveform polarization. With user-supplied
+                # frequencies the polarizations are already that length.
+                if full_grid:
+                    det_response_padded = np.zeros(len(self.frequency_array))
+                    det_response_padded[mask] = det_response
+                    det_response = det_response_padded
             else:
                 det_response = self.antenna_response(
                     parameters['ra'],
@@ -503,7 +507,8 @@ class Interferometer(object):
         otherwise the provided :code:`Parameters["geocent_time"]` is used.
         """
 
-        if frequencies is None:
+        full_grid = frequencies is None
+        if full_grid:
             frequencies = self.frequency_array[self.frequency_mask]
             mask = self.frequency_mask
         else:
@@ -523,11 +528,13 @@ class Interferometer(object):
                 parameters['ra'], parameters['dec'],
                 antenna_time, parameters['psi'], mode)
 
-            # Pad det_response to match the length of self.frequency_array,
-            # which equals the length of each waveform polarization.
-            det_response_padded = np.zeros(len(self.frequency_array))
-            det_response_padded[mask] = det_response
-            det_response = det_response_padded
+            # On the full grid, pad det_response to match the length of
+            # self.frequency_array (= each waveform polarization). With
+            # user-supplied frequencies the polarizations are already that length.
+            if full_grid:
+                det_response_padded = np.zeros(len(self.frequency_array))
+                det_response_padded[mask] = det_response
+                det_response = det_response_padded
         else:
             det_response = self.antenna_response(
                 parameters['ra'],
