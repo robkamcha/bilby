@@ -146,7 +146,10 @@ def make_astrophysical_signal_model(n_max, ifo_list):
         psi = kwargs['psi']
         ra  = kwargs['ra']
         dec = kwargs['dec']
-        e   = kwargs['e']
+        if 'e' in kwargs:
+            e = kwargs['e']
+        else:
+            e = 1.0
 
         model = {
             "plus":  np.zeros(frequency_array.shape, dtype='complex128'),
@@ -187,6 +190,112 @@ def make_astrophysical_signal_model(n_max, ifo_list):
     signal_model.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
     signal_model.__name__ = f'signal_model_{n_max}components'
     return signal_model
+
+
+def bbh_with_wavelets_factory(n_max, ifo_list):
+    """
+    Factory for a BBH source model with up to n_max sine gaussian components.
+
+    Returns a bilby-compatible source model whose signature exposes all
+    wavelet parameters explicitly, so that WaveformGenerator can
+    introspect and sample them during inference.
+
+    The wavelet parameters follow the same naming convention as
+    make_astrophysical_signal_model: n, SNR{i}, Q{i}, f{i}, phi{i}, dt{i} for i in range(n_max).
+
+    Parameters
+    ----------
+    n_max : int
+        Maximum number of wavelet components.
+
+    Returns
+    -------
+    callable
+        A bilby frequency-domain source model returning {'plus': ..., 'cross': ...}.
+    """
+
+    wavelet_model = make_astrophysical_signal_model(n_max, ifo_list)
+
+    def bbh_with_wavelets(frequency_array, **kwargs):
+        m1        = kwargs.pop('mass_1')
+        m2        = kwargs.pop('mass_2')
+        a1        = kwargs.pop('a_1')
+        a2        = kwargs.pop('a_2')
+        tilt_1     = kwargs.pop('tilt_1')
+        tilt_2     = kwargs.pop('tilt_2')
+        phi_12    = kwargs.pop('phi_12')
+        phi_jl    = kwargs.pop('phi_jl')
+        distance  = kwargs.pop('luminosity_distance')
+        inclination = kwargs.pop('theta_jn')
+        phase       = kwargs.pop('phase')
+        ra  = kwargs.pop('ra')
+        dec = kwargs.pop('dec')
+
+        wavelet_kwargs = {'n': kwargs.pop('n')}
+        wavelet_kwargs['ra'] = ra
+        wavelet_kwargs['dec'] = dec
+        wavelet_kwargs['psi'] = kwargs.pop('psi')
+        wavelet_kwargs['geocent_time'] = kwargs.pop('geocent_time')
+        for i in range(n_max):
+            wavelet_kwargs[f'SNR{i}'] = kwargs.pop(f'SNR{i}')
+            wavelet_kwargs[f'f{i}']   = kwargs.pop(f'f{i}')
+            wavelet_kwargs[f'Q{i}']   = kwargs.pop(f'Q{i}')
+            wavelet_kwargs[f'phi{i}'] = kwargs.pop(f'phi{i}')
+            wavelet_kwargs[f'dt{i}']  = kwargs.pop(f'dt{i}')
+
+        # `kwargs` now only holds waveform_arguments (waveform_approximant,
+        # minimum_frequency, maximum_frequency, reference_frequency, and,
+        # when used with RelativeBinningGravitationalWaveTransient,
+        # `fiducial`/`frequency_bin_edges`). Honor those the same way
+        # `lal_binary_black_hole` does, so the wavelets are evaluated on the
+        # same frequency points as the BBH signal.
+
+        bbh_signal = lal_binary_black_hole(
+            frequency_array, m1, m2, distance,
+            a1, tilt_1, phi_12, a2, tilt_2, phi_jl, inclination, phase,
+            **kwargs,
+        )
+
+        wavelet_signal = wavelet_model(frequency_array, **wavelet_kwargs)
+
+        return {
+            'plus': bbh_signal['plus'] + wavelet_signal['plus'], 
+            'cross': bbh_signal['cross'] + wavelet_signal['cross']
+        }
+
+    P = inspect.Parameter
+    params = [
+        P('frequency_array', P.POSITIONAL_OR_KEYWORD),
+        P('mass_1',              P.POSITIONAL_OR_KEYWORD),
+        P('mass_2',              P.POSITIONAL_OR_KEYWORD),
+        P('a_1',              P.POSITIONAL_OR_KEYWORD),
+        P('a_2',              P.POSITIONAL_OR_KEYWORD),
+        P('tilt_1',             P.POSITIONAL_OR_KEYWORD),
+        P('tilt_2',             P.POSITIONAL_OR_KEYWORD),
+        P('phi_12',            P.POSITIONAL_OR_KEYWORD),
+        P('phi_jl',            P.POSITIONAL_OR_KEYWORD),
+        P('luminosity_distance',        P.POSITIONAL_OR_KEYWORD),
+        P('theta_jn',     P.POSITIONAL_OR_KEYWORD),
+        P('phase',             P.POSITIONAL_OR_KEYWORD),
+        P('n',               P.POSITIONAL_OR_KEYWORD),
+        P('ra',           P.POSITIONAL_OR_KEYWORD),
+        P('dec',          P.POSITIONAL_OR_KEYWORD),
+        P('psi',          P.POSITIONAL_OR_KEYWORD),
+        P('geocent_time', P.POSITIONAL_OR_KEYWORD),
+    ]
+    for i in range(n_max):
+        params.append(P(f'SNR{i}', P.POSITIONAL_OR_KEYWORD))
+        params.append(P(f'f{i}', P.POSITIONAL_OR_KEYWORD))
+        params.append(P(f'Q{i}', P.POSITIONAL_OR_KEYWORD))
+        params.append(P(f'phi{i}', P.POSITIONAL_OR_KEYWORD))
+        params.append(P(f'dt{i}', P.POSITIONAL_OR_KEYWORD))
+
+    bbh_with_wavelets.__signature__ = inspect.Signature(params)
+    bbh_with_wavelets.__name__ = f'bbh_with_wavelets_{n_max}components'
+    return bbh_with_wavelets
+
+
+### glitch models ###
 
 
 def _glitch_SNR_to_amplitude(SNR, Q, f0, ifo):
@@ -339,7 +448,8 @@ def bns_with_resonances_factory(n_max):
 
         resonance_phase = resonance_model(resonance_frequency_array, **resonance_kwargs)
 
-        phase_factor_plus  = np.exp(1j * resonance_phase) * (0.5 * (1 + np.cos(inclination) ** 2))
+        # this is just 22-mode waveforms. Atm it is incompatible with HOM waveforms!
+        phase_factor_plus  = np.exp(1j * resonance_phase) * (0.5 * (1 + np.cos(inclination) ** 2)) 
         phase_factor_cross = np.exp(1j * resonance_phase) * np.cos(inclination)
 
         return {
